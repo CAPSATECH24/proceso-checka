@@ -24,18 +24,19 @@ class ProcessElaborationAgent:
     def _elaborate_process_description(self, process: Process) -> str:
         """Elaborate on the main process description"""
         prompt = f"""
-        Basándote en esta información del proceso, genera una descripción clara y detallada:
+        Basándote ÚNICAMENTE en esta información del proceso, genera una descripción clara y detallada:
         Nombre del Proceso: {process.name}
         Descripción Actual: {process.description}
         Categoría: {process.category if process.category else 'No especificada'}
         
-        Por favor:
-        1. Mantén el mismo significado y alcance
-        2. Usa un lenguaje claro y profesional
-        3. Organiza la información de manera lógica
-        4. Incluye el objetivo principal del proceso
-        5. Menciona los resultados esperados
-        6. Destaca cualquier requisito importante
+        REGLAS ESTRICTAS:
+        1. SOLO incluir información que esté EXPLÍCITAMENTE mencionada en el input
+        2. NO agregar pasos, requisitos o detalles que no estén en el texto original
+        3. NO hacer suposiciones sobre el proceso
+        4. NO incluir información de conocimiento general o experiencia previa
+        5. Mantener el mismo significado y alcance del texto original
+        6. Usar un lenguaje claro y profesional
+        7. Si algo no está claro o falta información, NO intentar completarla
         """
         
         try:
@@ -48,7 +49,7 @@ class ProcessElaborationAgent:
     def _elaborate_subprocess(self, sub_process: SubProcess, process_context: str) -> str:
         """Elaborate on a sub-process with detailed step-by-step instructions"""
         prompt = f"""
-        Basándote en esta información del subproceso:
+        Basándote ÚNICAMENTE en esta información del subproceso:
 
         Contexto del Proceso Principal:
         {process_context}
@@ -57,53 +58,68 @@ class ProcessElaborationAgent:
         Descripción Base: {sub_process.description}
         Orden: {sub_process.order}
 
-        Genera una descripción secuencial del proceso siguiendo este formato:
+        Genera instrucciones paso a paso detalladas siguiendo estas reglas ESTRICTAS:
 
-        1. ALCANCE DEL PROCESO
-        [Describir brevemente el alcance específico mencionado en el input]
+        REGLAS CRÍTICAS DE CONTENIDO:
+        1. SOLO incluir pasos que estén EXPLÍCITAMENTE mencionados en el input
+        2. NO agregar pasos intermedios que no estén mencionados
+        3. NO asumir acciones basadas en experiencia o conocimiento previo
+        4. NO completar información faltante con suposiciones
+        5. Si un paso no está claro, mantenerlo exactamente como está en el input
+        6. NO agregar detalles técnicos o explicaciones no mencionadas
+        7. Si falta información sobre cómo realizar un paso, NO intentar explicarlo
 
-        2. DESARROLLO DEL PROCESO
-        2.1. [Acción específica con verbo en infinitivo]
-             "Describir la acción exacta a realizar"
+        REGLAS DE FORMATO:
+        1. Usar SOLO números simples para cada paso (1, 2, 3, etc.)
+        2. NO usar números compuestos o subniveles (NO usar 1.1, 2.1, etc.)
+        3. NO repetir números
+        4. Cada paso debe comenzar con un verbo en infinitivo
+        5. Mantener el texto EXACTAMENTE como aparece en el input
 
-        2.2. [Siguiente acción con verbo en infinitivo]
-             "Describir la siguiente acción exacta"
-             
-        2.3. [Continuar con la secuencia de acciones]
-             "Mantener el mismo nivel de detalle"
-        ...
+        EJEMPLO CORRECTO (si el input dice exactamente esto):
+        Input: "Abrir inventario, hacer clic en nuevo, escribir proveedor"
+        1. Abrir inventario
+        2. Hacer clic en nuevo
+        3. Escribir proveedor
 
-        3. CRITERIOS DE CONTROL
-        [Solo si se mencionan específicamente puntos de verificación]
-        - Qué se debe verificar exactamente
-        - Cuál es el resultado esperado
-
-        REGLAS:
-        1. Usar verbos en infinitivo al inicio de cada acción
-        2. Mantener la secuencia exacta mencionada
-        3. Ser específico y directo en cada paso
-        4. NO agregar información no mencionada
-        5. NO asumir pasos intermedios
+        EJEMPLO INCORRECTO:
+        Input: "Abrir inventario"
+        1. Abrir el sistema
+        2. Ingresar credenciales  <-- MAL: No mencionado en el input
+        3. Navegar al módulo de inventario  <-- MAL: No mencionado en el input
+        4. Abrir inventario
         """
         
         try:
             response = self.call_api(prompt)
             description = response.text.strip()
             
-            # Validar que la respuesta contenga las secciones requeridas
-            required_sections = [
-                "1. ALCANCE DEL PROCESO",
-                "2. DESARROLLO DEL PROCESO",
-                "3. CRITERIOS DE CONTROL"
-            ]
+            # Procesar la respuesta para asegurar formato correcto
+            lines = description.split('\n')
+            processed_lines = []
             
-            missing_sections = [section for section in required_sections if section not in description]
-            if missing_sections:
-                logger.warning(f"Descripción incompleta. Faltan secciones: {missing_sections}")
-                # Intentar regenerar la descripción si faltan secciones
-                return self._elaborate_subprocess(sub_process, process_context)
+            for line in lines:
+                line = line.strip()
+                if not line:  # Ignorar líneas vacías
+                    continue
+                
+                # Limpiar cualquier numeración existente
+                if line[0].isdigit():
+                    # Si la línea comienza con un número, eliminar la numeración
+                    parts = line.split('.')
+                    if len(parts) > 1:
+                        line = '.'.join(parts[1:]).strip()
+                    else:
+                        # Buscar el primer espacio después del número
+                        space_index = line.find(' ')
+                        if space_index != -1:
+                            line = line[space_index:].strip()
+                
+                # Agregar la línea sin numeración
+                if line:
+                    processed_lines.append(line)
             
-            return description
+            return '\n'.join(processed_lines)
         except Exception as e:
             logger.error(f"Error elaborating subprocess: {str(e)}")
             return sub_process.description
